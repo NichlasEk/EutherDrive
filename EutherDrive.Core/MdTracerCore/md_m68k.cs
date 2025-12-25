@@ -40,6 +40,8 @@ namespace EutherDrive.Core.MdTracerCore
         private const uint PcWatchStart = 0x000330;
         private const uint PcWatchEnd = 0x000340;
         private static bool _pcWatchDumped;
+        private static bool _lowPcJsrWatchFired;
+        private static bool _pc47cLogged;
         private static readonly Stopwatch _pcWatchStopwatch = Stopwatch.StartNew();
         private static long _pcWatchLastProgressMs;
         private const long PcWatchProgressIntervalMs = 50;
@@ -65,6 +67,26 @@ namespace EutherDrive.Core.MdTracerCore
         private static bool _stallWatchLowDumped;
         private const uint StallWatchLowStart = 0x000710;
         private const uint StallWatchLowEnd = 0x000730;
+
+        private static readonly bool TraceVdpLoopWatch =
+            string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_VDP_LOOP"), "1", StringComparison.Ordinal);
+        private const uint VdpLoopPc1 = 0x032F38;
+        private const uint VdpLoopPc2 = 0x034960;
+        private static long _vdploopCounter;
+        private const long VdpLoopLogInterval = 10000;
+        private static bool _lowPcWatchFired;
+        private static readonly bool TraceCallParam =
+            string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_CALLPARAM"), "1", StringComparison.Ordinal);
+        private static bool _callParamLogged;
+        private static readonly bool TraceMoveaParam =
+            string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_MOVEA_PARAM"), "1", StringComparison.Ordinal);
+        private static readonly bool TraceCramParam =
+            string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_CRAM"), "1", StringComparison.Ordinal);
+        private static bool _moveaParamLogged;
+        private static bool _moveaAfterLogPending;
+        private static uint _moveaAfterPc;
+        private static bool _moveaReadLogged;
+        private static bool _cramMoveLogged;
         private uint _stallLastPc;
         private uint _stallSecondLastPc;
         private uint _stallOscCurrent;
@@ -102,6 +124,47 @@ namespace EutherDrive.Core.MdTracerCore
             int iter = 0;
             while (g_clock_now < g_clock_total)
             {
+                if (!_lowPcWatchFired && g_reg_PC < 0x200)
+                {
+                    _lowPcWatchFired = true;
+                    ushort op = read16(g_reg_PC);
+                    ushort sr = PackSR();
+                    uint sp = g_reg_addr[7].l;
+                    uint spVal = (g_memory != null && sp + 3 < g_memory.Length) ? read32(sp) : 0;
+                    Console.WriteLine($"[LOWPC] PC=0x{g_reg_PC:X6} OP=0x{op:X4} SR=0x{sr:X4} SP=0x{sp:X8} [SP]=0x{spVal:X8}");
+                    Console.WriteLine($"[LOWPC] recent accesses: {FormatRecentAccesses(8)}");
+                    byte b0 = read8(0x08);
+                    byte b1 = read8(0x09);
+                    byte b2 = read8(0x0A);
+                    byte b3 = read8(0x0B);
+                    byte b4 = read8(0x0C);
+                    byte b5 = read8(0x0D);
+                    byte b6 = read8(0x0E);
+                    byte b7 = read8(0x0F);
+                    Console.WriteLine($"[LOWPC] vec8..F: {b0:X2} {b1:X2} {b2:X2} {b3:X2} {b4:X2} {b5:X2} {b6:X2} {b7:X2}");
+                }
+
+                if (TraceCallParam && !_callParamLogged && g_reg_PC >= 0x02EB60 && g_reg_PC <= 0x02EB80)
+                {
+                    _callParamLogged = true;
+                    uint sp = g_reg_addr[7].l;
+                    uint p0 = read32(sp);
+                    uint p1 = read32(sp + 4);
+                    uint p2 = read32(sp + 8);
+                    Console.WriteLine($"[CALLPARAM] pc=0x{g_reg_PC:X6} A7=0x{sp:X8} [A7]=0x{p0:X8} [A7+4]=0x{p1:X8} [A7+8]=0x{p2:X8} A0=0x{g_reg_addr[0].l:X8}");
+                }
+                if (TraceMoveaParam && !_moveaParamLogged && g_reg_PC >= 0x02EB80 && g_reg_PC <= 0x02EBC0 && g_opcode == 0x206F)
+                {
+                    _moveaParamLogged = true;
+                    uint sp = g_reg_addr[7].l;
+                    uint p0 = read32(sp);
+                    uint p1 = read32(sp + 4);
+                    uint p2 = read32(sp + 8);
+                    Console.WriteLine($"[MOVEA] pc=0x{g_reg_PC:X6} OP=0x{g_opcode:X4} A7=0x{sp:X8} [A7]=0x{p0:X8} [A7+4]=0x{p1:X8} [A7+8]=0x{p2:X8}");
+                    _moveaAfterLogPending = true;
+                    _moveaAfterPc = g_reg_PC;
+                }
+
                 if (++iter > 50000)
                 {
                     if (_intLogRemaining > 0)
@@ -129,6 +192,25 @@ namespace EutherDrive.Core.MdTracerCore
                     g_op4 = (byte)(g_opcode & 0x07);
 
                     if (g_68k_stop) { g_clock_now = g_clock_total; break; }
+
+                    if (TraceCramParam && !_cramMoveLogged && g_reg_PC >= 0x02EB80 && g_reg_PC <= 0x02EBC0 && g_opcode == 0x2298)
+                    {
+                        _cramMoveLogged = true;
+                        uint a0 = g_reg_addr[0].l;
+                        uint a1 = g_reg_addr[1].l;
+                        uint memVal = read32(a0);
+                        uint romVal = 0;
+                        var cart = md_main.g_md_cartridge;
+                        if (cart != null && cart.g_file.Length >= (int)(a0 + 4))
+                        {
+                            int off = (int)a0;
+                            romVal = (uint)((cart.g_file[off] << 24) |
+                                            (cart.g_file[off + 1] << 16) |
+                                            (cart.g_file[off + 2] << 8) |
+                                            cart.g_file[off + 3]);
+                        }
+                        Console.WriteLine($"[CRAMMOVE] pc=0x{g_reg_PC:X6} A0=0x{a0:X8} A1=0x{a1:X8} mem=0x{memVal:X8} rom=0x{romVal:X8}");
+                    }
 
                     if (g_opcode == 0x33FC)
                     {
@@ -184,7 +266,17 @@ namespace EutherDrive.Core.MdTracerCore
                         ushort op2 = read16(g_reg_PC + 4);
                         MdLog.WriteLine($"[m68k] PC=0x{g_reg_PC:X6} OP=0x{op0:X4} N1=0x{op1:X4} N2=0x{op2:X4} SR=0x{g_reg_SR:X4} SP=0x{g_reg_addr[7].l:X8}");
                     }
+                    if (_pcWatchEnabled && !_pc47cLogged && g_reg_PC == 0x00047C)
+                    {
+                        _pc47cLogged = true;
+                        uint a0 = g_reg_addr[0].l;
+                        uint a1 = g_reg_addr[1].l;
+                        uint t56 = read32(0xFF0556);
+                        uint t5a = read32(0xFF055A);
+                        Console.WriteLine($"[PC47C] A0=0x{a0:X8} A1=0x{a1:X8} T56=0x{t56:X8} T5A=0x{t5a:X8}");
+                    }
 
+                    MaybeLogVdpLoopWatch(g_reg_PC, g_opcode);
                     MaybeLogPcWatch(g_reg_PC, g_opcode);
                     MaybeLogStallWatch(g_reg_PC, g_opcode);
                     MaybeLogStallBootWatch(g_reg_PC, g_opcode);
@@ -205,6 +297,17 @@ namespace EutherDrive.Core.MdTracerCore
                     else
                     {
                         opinfo.opcode();
+                    }
+                    if (TraceMoveaParam && _moveaAfterLogPending)
+                    {
+                        _moveaAfterLogPending = false;
+                        Console.WriteLine($"[MOVEA-AFTER] pc=0x{_moveaAfterPc:X6} A0=0x{g_reg_addr[0].l:X8}");
+                    }
+                    if (!_lowPcWatchFired && pcBefore >= 0x200 && g_reg_PC < 0x200)
+                    {
+                        _lowPcWatchFired = true;
+                        string name = opinfo?.opname_out ?? "op";
+                        Console.WriteLine($"[LOWPC-JUMP] fromPC=0x{pcBefore:X6} toPC=0x{g_reg_PC:X6} OP=0x{g_opcode:X4} {name}");
                     }
                     if (TraceMdStall)
                         CheckForStall(pcBefore);
@@ -503,6 +606,34 @@ namespace EutherDrive.Core.MdTracerCore
             }
 
             MaybeLogChecksumProgress(pc, opcode);
+        }
+
+        private static void MaybeLogVdpLoopWatch(uint pc, ushort opcode)
+        {
+            if (!TraceVdpLoopWatch)
+                return;
+            if (pc != VdpLoopPc1 && pc != VdpLoopPc2)
+            {
+                _vdploopCounter = 0;
+                return;
+            }
+
+            _vdploopCounter++;
+            if (_vdploopCounter < VdpLoopLogInterval)
+                return;
+            _vdploopCounter = 0;
+
+            ushort status = md_main.g_md_vdp.PeekVdpStatus();
+            int vblank = (status & md_vdp.VDP_STATUS_VBLANK_MASK) != 0 ? 1 : 0;
+            int dma = (status & md_vdp.VDP_STATUS_DMA_MASK) != 0 ? 1 : 0;
+            int vint = g_interrupt_V_req ? 1 : 0;
+            int hint = g_interrupt_H_req ? 1 : 0;
+            string msg = $"[VDPPC] PC=0x{pc:X6} OP=0x{opcode:X4} status=0x{status:X4} vblank={vblank} dma={dma} vint={vint} hint={hint}";
+            Console.WriteLine(msg);
+            if (MdTracerCore.MdLog.Enabled)
+            {
+                MdTracerCore.MdLog.WriteLine(msg);
+            }
         }
 
         private static void MaybeLogChecksumProgress(uint pc, ushort opcode)

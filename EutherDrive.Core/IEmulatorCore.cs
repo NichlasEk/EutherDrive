@@ -14,6 +14,18 @@ public interface IEmulatorCore
     /// 16-bit PCM (börja med tom buffert i dummy).
     ReadOnlySpan<short> GetAudioBuffer(out int sampleRate, out int channels);
 
-    /// Enkel input
-    void SetInputState(bool up, bool down, bool left, bool right, bool a, bool b, bool c, bool start);
+    /// Enkel input (3- eller 6-knappar)
+    void SetInputState(
+        bool up,
+        bool down,
+        bool left,
+        bool right,
+        bool a,
+        bool b,
+        bool c,
+        bool x,
+        bool y,
+        bool z,
+        bool start,
+        bool mode);
 }

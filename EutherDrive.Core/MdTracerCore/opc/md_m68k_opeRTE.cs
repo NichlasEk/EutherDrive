@@ -19,6 +19,10 @@ internal partial class md_m68k
         uint newPc = stack_pop32();
         g_reg_SR = newSr;
         g_reg_PC = newPc;
+        if (g_reg_PC < 0x200)
+        {
+            Console.WriteLine($"[RTE] oldPC=0x{oldPc:X6} newPC=0x{g_reg_PC:X6} SR=0x{newSr:X4} SP=0x{g_reg_addr[7].l:X8}");
+        }
 
         if (_intLogRemaining > 0)
         {

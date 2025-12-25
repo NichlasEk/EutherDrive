@@ -54,6 +54,7 @@ namespace EutherDrive.Core.MdTracerCore
 
             // Töm RAM
             Array.Clear(g_memory, 0, g_memory.Length);
+            ResetWramTraceCounters();
 
             bool traceRomCopy = string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_ROMCOPY"), "1", StringComparison.Ordinal);
 
@@ -91,6 +92,20 @@ namespace EutherDrive.Core.MdTracerCore
                 }
             }
 
+            string? trapStubRaw = Environment.GetEnvironmentVariable("EUTHERDRIVE_TRAP_STUB");
+            bool trapStub = !string.Equals(trapStubRaw, "0", StringComparison.Ordinal);
+            if (trapStub && !md_main.g_masterSystemMode)
+            {
+                const uint stubAddr = 0xFF0500;
+                write16(stubAddr, 0x4E75); // RTS
+                write32(0xFF0556, stubAddr);
+                write32(0xFF055A, stubAddr);
+                write32(0xFF0562, stubAddr);
+                write32(0xFF0566, stubAddr);
+                write32(0xFF056A, stubAddr);
+                MdLog.WriteLine($"[TRAPSTUB] installed RTS at 0x{stubAddr:X6}");
+            }
+
             // Init PC/SP från vektor-tabellen (0=initial SP, 4=initial PC)
             uint initialSp = read32(0);
             uint initialPc = read32(4);
@@ -109,6 +124,41 @@ namespace EutherDrive.Core.MdTracerCore
 
             // A7 = stack pointer efter reset
             g_reg_addr[7].l = g_stack_top;
+
+            bool traceReset = string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_RESETVECT"), "1", StringComparison.Ordinal);
+            if (traceReset)
+            {
+                MdLog.WriteLine($"[RESET] SP=0x{initialSp:X8} PC=0x{initialPc:X8} memSize=0x{g_memory.Length:X}");
+                if (initialPc < (uint)g_memory.Length)
+                {
+                    int max = (int)Math.Min(16, g_memory.Length - initialPc);
+                    var sb = new StringBuilder(128);
+                    sb.Append($"[RESET] bytes @PC: ");
+                    for (int i = 0; i < max; i++)
+                    {
+                        if (i > 0) sb.Append(' ');
+                        sb.Append(g_memory[initialPc + i].ToString("X2"));
+                    }
+                    MdLog.WriteLine(sb.ToString());
+
+                    sb.Clear();
+                    sb.Append("[RESET] opcodes @PC:");
+                    int words = Math.Min(8, (max + 1) / 2);
+                    for (int i = 0; i < words; i++)
+                    {
+                        uint addr = initialPc + (uint)(i * 2);
+                        if (addr + 1 >= (uint)g_memory.Length)
+                            break;
+                        ushort op = read16(addr);
+                        sb.Append($" 0x{op:X4}");
+                    }
+                    MdLog.WriteLine(sb.ToString());
+                }
+                else
+                {
+                    MdLog.WriteLine("[RESET] PC outside memory");
+                }
+            }
 
             // USP (värdet i sig) – många implementationer nollar den vid reset
             g_reg_addr_usp.l = 0;
@@ -158,6 +208,11 @@ namespace EutherDrive.Core.MdTracerCore
             _d1LogRemaining = 64;
             _d1LogLastPc = 0;
             _pc466LogRemaining = 32;
+            _callParamLogged = false;
+            _moveaParamLogged = false;
+            _moveaReadLogged = false;
+            _moveaAfterLogPending = false;
+            _cramMoveLogged = false;
             MdLog.WriteLine("[md_m68k] Boot trace armed");
         }
 

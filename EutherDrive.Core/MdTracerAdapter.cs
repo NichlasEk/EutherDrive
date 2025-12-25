@@ -139,8 +139,7 @@ public sealed class MdTracerAdapter : IEmulatorCore
                     md_main.g_md_cartridge.g_file_size = normalized.Length;
                 }
 
-                bool useNormalizedForBus = md_main.g_md_cartridge.g_smd_header_size > 0 || md_main.g_md_cartridge.g_smd_deinterleaved;
-                _rom = useNormalizedForBus ? md_main.g_md_cartridge.g_file : rawData;
+                _rom = md_main.g_md_cartridge.g_file.Length > 0 ? md_main.g_md_cartridge.g_file : rawData;
                 _bus = new MegaDriveBus(_rom);
                 md_bus.Current = _bus;
                 EutherDrive.Core.MdTracerCore.md_bus.Current = _bus;
@@ -361,6 +360,7 @@ public sealed class MdTracerAdapter : IEmulatorCore
 
         _tick++;
         long frameStart = Stopwatch.GetTimestamp();
+        md_main.g_md_io?.NewFrame();
 
         if (md_main.g_masterSystemMode)
         {
@@ -639,19 +639,45 @@ public sealed class MdTracerAdapter : IEmulatorCore
         return ReadOnlySpan<short>.Empty;
     }
 
-    public void SetInputState(bool up, bool down, bool left, bool right, bool a, bool b, bool c, bool start)
+    public void SetInputState(
+        bool up,
+        bool down,
+        bool left,
+        bool right,
+        bool a,
+        bool b,
+        bool c,
+        bool x,
+        bool y,
+        bool z,
+        bool start,
+        bool mode)
     {
         var io = md_main.g_md_io;
         if (io == null)
             return;
 
-        io._pad1.Up = up;
-        io._pad1.Down = down;
-        io._pad1.Left = left;
-        io._pad1.Right = right;
-        io._pad1.A = a;
-        io._pad1.B = b;
-        io._pad1.C = c;
-        io._pad1.Start = start;
+        var pad = io.Pad1Instance;
+        pad.State.Up = up;
+        pad.State.Down = down;
+        pad.State.Left = left;
+        pad.State.Right = right;
+        pad.State.A = a;
+        pad.State.B = b;
+        pad.State.C = c;
+        pad.State.X = x;
+        pad.State.Y = y;
+        pad.State.Z = z;
+        pad.State.Start = start;
+        pad.State.Mode = mode;
+    }
+
+    public void SetPadType(bool useThreeButton)
+    {
+        var io = md_main.g_md_io;
+        if (io == null)
+            return;
+
+        io.Pad1Type = useThreeButton ? MdPadType.ThreeButton : MdPadType.SixButton;
     }
 }

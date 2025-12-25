@@ -1,3 +1,5 @@
+using System;
+
 namespace EutherDrive.Core.MdTracerCore
 {
     // OBS: måste vara samma "shape" som övriga md_io- partials:
@@ -5,20 +7,22 @@ namespace EutherDrive.Core.MdTracerCore
     // - partial så den kan fortsätta ligga i flera filer (md_io_pad.cs osv)
     internal partial class md_io
     {
-        private bool _pad1Th = true;
-        private bool _pad2Th = true;
+        private readonly MdPad _pad1 = new MdPad(1) { PadType = ParsePadType() };
+        private readonly MdPad _pad2 = new MdPad(2) { PadType = ParsePadType() };
 
         // Global pekare (som md_bus.Current)
         public static md_io? Current { get; set; }
 
         // Om overlay / debugkod vill läsa kontroller statiskt:
         // md_io.Pad1 / md_io.Pad2
-        public static MdPadState Pad1 => Current?._pad1 ?? default;
-        public static MdPadState Pad2 => Current?._pad2 ?? default;
+        public static MdPadState Pad1 => Current?._pad1.State ?? default;
+        public static MdPadState Pad2 => Current?._pad2.State ?? default;
 
         // Interna states (fylls typiskt i md_io_pad.cs)
-        internal MdPadState _pad1;
-        internal MdPadState _pad2;
+        public MdPadType Pad1Type { get => _pad1.PadType; set => _pad1.PadType = value; }
+        public MdPadType Pad2Type { get => _pad2.PadType; set => _pad2.PadType = value; }
+        internal MdPad Pad1Instance => _pad1;
+        internal MdPad Pad2Instance => _pad2;
 
         // ------------------------------------------------------------
         // READ
@@ -34,16 +38,16 @@ namespace EutherDrive.Core.MdTracerCore
                     return 0xA0; // Version register (NTSC, rev 0)
                 case 0xA10002:
                 case 0xA10003:
-                    return ReadPadData(_pad1, _pad1Th);
+                    return _pad1.ReadData();
                 case 0xA10004:
                 case 0xA10005:
-                    return ReadPadData(_pad2, _pad2Th);
+                    return _pad2.ReadData();
                 case 0xA10008:
                 case 0xA10009:
-                    return (byte)(_pad1Th ? 0x40 : 0x00);
+                    return (byte)(_pad1.ThHigh ? 0x40 : 0x00);
                 case 0xA1000A:
                 case 0xA1000B:
-                    return (byte)(_pad2Th ? 0x40 : 0x00);
+                    return (byte)(_pad2.ThHigh ? 0x40 : 0x00);
                 default:
                     return 0x00;
             }
@@ -57,16 +61,16 @@ namespace EutherDrive.Core.MdTracerCore
             {
                 case 0xA10002:
                 case 0xA10003:
-                    return (ushort)(0xFF00 | ReadPadData(_pad1, _pad1Th));
+                    return (ushort)(0xFF00 | _pad1.ReadData());
                 case 0xA10004:
                 case 0xA10005:
-                    return (ushort)(0xFF00 | ReadPadData(_pad2, _pad2Th));
+                    return (ushort)(0xFF00 | _pad2.ReadData());
                 case 0xA10008:
                 case 0xA10009:
-                    return (ushort)(0xFF00 | (_pad1Th ? 0x40 : 0x00));
+                    return (ushort)(0xFF00 | (_pad1.ThHigh ? 0x40 : 0x00));
                 case 0xA1000A:
                 case 0xA1000B:
-                    return (ushort)(0xFF00 | (_pad2Th ? 0x40 : 0x00));
+                    return (ushort)(0xFF00 | (_pad2.ThHigh ? 0x40 : 0x00));
                 default:
                 {
                     byte hi = read8(in_address);
@@ -94,12 +98,12 @@ namespace EutherDrive.Core.MdTracerCore
                 case 0xA10003:
                 case 0xA10008:
                 case 0xA10009:
-                    _pad1Th = (in_val & 0x40) != 0;
+                    _pad1.WriteControl(in_val);
                     break;
                 case 0xA10005:
                 case 0xA1000A:
                 case 0xA1000B:
-                    _pad2Th = (in_val & 0x40) != 0;
+                    _pad2.WriteControl(in_val);
                     break;
                 default:
                     break;
@@ -119,29 +123,26 @@ namespace EutherDrive.Core.MdTracerCore
             write16(in_address + 2, (ushort)(in_val & 0xFFFF));
         }
 
-        private static byte ReadPadData(MdPadState pad, bool thHigh)
+        public void NewFrame()
         {
-            byte v = 0xFF; // active-low
+            _pad1.NewFrame();
+            _pad2.NewFrame();
+        }
 
-            if (pad.Up) v &= 0xFE;
-            if (pad.Down) v &= 0xFD;
-            if (pad.Left) v &= 0xFB;
-            if (pad.Right) v &= 0xF7;
+        private static MdPadType ParsePadType()
+        {
+            string? raw = Environment.GetEnvironmentVariable("EUTHERDRIVE_PAD_TYPE");
+            if (string.IsNullOrWhiteSpace(raw))
+                return MdPadType.SixButton;
 
-            if (thHigh)
+            if (raw.Equals("3", StringComparison.OrdinalIgnoreCase) ||
+                raw.Equals("three", StringComparison.OrdinalIgnoreCase) ||
+                raw.Equals("threebutton", StringComparison.OrdinalIgnoreCase))
             {
-                if (pad.B) v &= 0xEF;     // bit 4
-                if (pad.C) v &= 0xDF;     // bit 5
-                v |= 0x40;                // TH = 1
-            }
-            else
-            {
-                if (pad.Start) v &= 0xEF; // bit 4
-                if (pad.A) v &= 0xDF;     // bit 5
-                v &= 0xBF;                // TH = 0
+                return MdPadType.ThreeButton;
             }
 
-            return v;
+            return MdPadType.SixButton;
         }
     }
 }

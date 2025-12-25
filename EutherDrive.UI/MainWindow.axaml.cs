@@ -21,6 +21,7 @@ namespace EutherDrive.UI;
 public partial class MainWindow : Window
 {
     private IEmulatorCore? _core;
+    private bool _useThreeButtonPad;
 
     // EN bitmap som vi alltid blitar till
     private WriteableBitmap? _wb;
@@ -179,6 +180,7 @@ public partial class MainWindow : Window
             else
             {
             _core = new MdTracerAdapter();   // <-- Steg A core
+                ApplyPadTypeToCore();
 
                 if (!string.IsNullOrWhiteSpace(_romPath))
                 {
@@ -207,6 +209,7 @@ public partial class MainWindow : Window
 
                 // LoadRom() kallar Reset() redan i vår adapter.
                 // Så du behöver inte _core.Reset() här.
+                ApplyPadTypeToCore();
             }
 
             _audioOutput?.Dispose();
@@ -229,6 +232,18 @@ public partial class MainWindow : Window
             StatusText.Text = $"Start failed: {ex.Message}";
             Console.WriteLine(ex.ToString());
         }
+    }
+
+    private void OnPadTypeChanged(object? sender, RoutedEventArgs e)
+    {
+        _useThreeButtonPad = Pad3ButtonCheck?.IsChecked == true;
+        ApplyPadTypeToCore();
+    }
+
+    private void ApplyPadTypeToCore()
+    {
+        if (_core is MdTracerAdapter adapter)
+            adapter.SetPadType(_useThreeButtonPad);
     }
 
     private void OnStop(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -324,19 +339,23 @@ public partial class MainWindow : Window
 
     private void ApplyInputToCore(IEmulatorCore core)
     {
-        bool up    = _keysDown.Contains(Key.Up)    || _keysDown.Contains(Key.W);
-        bool down  = _keysDown.Contains(Key.Down)  || _keysDown.Contains(Key.S);
-        bool left  = _keysDown.Contains(Key.Left)  || _keysDown.Contains(Key.A);
-        bool right = _keysDown.Contains(Key.Right) || _keysDown.Contains(Key.D);
+        bool up    = _keysDown.Contains(Key.Up);
+        bool down  = _keysDown.Contains(Key.Down);
+        bool left  = _keysDown.Contains(Key.Left);
+        bool right = _keysDown.Contains(Key.Right);
 
-        // Knappar: flera alternativ för att slippa layout-strul
-        bool a = _keysDown.Contains(Key.Z) || _keysDown.Contains(Key.J) || _keysDown.Contains(Key.Q) || _keysDown.Contains(Key.Space);
-        bool b = _keysDown.Contains(Key.X) || _keysDown.Contains(Key.K) || _keysDown.Contains(Key.E);
-        bool c = _keysDown.Contains(Key.C) || _keysDown.Contains(Key.L) || _keysDown.Contains(Key.R);
+        bool a = _keysDown.Contains(Key.Z);
+        bool b = _keysDown.Contains(Key.X);
+        bool c = _keysDown.Contains(Key.C);
+
+        bool x = _keysDown.Contains(Key.A);
+        bool y = _keysDown.Contains(Key.S);
+        bool z = _keysDown.Contains(Key.D);
 
         bool start = _keysDown.Contains(Key.Enter);
+        bool mode = _keysDown.Contains(Key.LeftShift);
 
-        core.SetInputState(up, down, left, right, a, b, c, start);
+        core.SetInputState(up, down, left, right, a, b, c, x, y, z, start, mode);
 
         // StatusText uppdateras i Tick()
     }
@@ -455,6 +474,7 @@ public partial class MainWindow : Window
 
         _originalConsoleOut ??= Console.Out;
         Console.SetOut(new TeeTextWriter(_originalConsoleOut, _romLogWriter));
+        Console.WriteLine("[LOG] writing to " + path);
     }
 
     private sealed class TeeTextWriter : TextWriter

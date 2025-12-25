@@ -178,6 +178,7 @@ namespace EutherDrive.Core.MdTracerCore
             if (in_address <= 0xc00003)
             {
                 _mdDataWritesThisFrame++;
+                _mdDataWritesTotal++;
                 if (MdTracerCore.MdLog.Enabled && !_mdDataPortLogged)
                 {
                     _mdDataPortLogged = true;
@@ -192,10 +193,11 @@ namespace EutherDrive.Core.MdTracerCore
                     return;
                 }
 
-                switch (g_vdp_reg_code & 0x0f)
+                switch (g_vdp_reg_code & 0x07)
                 {
                     case 1: // VRAM write
                         _mdVramWritesThisFrame++;
+                        _mdVramWritesTotal++;
                         vram_write_w(g_vdp_reg_dest_address, in_data);
                         pattern_chk(g_vdp_reg_dest_address,   (byte)(in_data >> 8));
                         pattern_chk(g_vdp_reg_dest_address+1, (byte)(in_data & 0xff));
@@ -205,6 +207,7 @@ namespace EutherDrive.Core.MdTracerCore
                     case 3: // CRAM write
                     {
                         _mdCramWritesThisFrame++;
+                        _mdCramWritesTotal++;
                         int col = (g_vdp_reg_dest_address >> 1) & 0x3f;
                         cram_set(col, in_data);
                         g_vdp_reg_dest_address = (ushort)((g_vdp_reg_dest_address + g_vdp_reg_15_autoinc) & 0xffff);
@@ -227,11 +230,13 @@ namespace EutherDrive.Core.MdTracerCore
             else if (in_address <= 0xc00007)
             {
                 _mdCtrlWritesThisFrame++;
+                _mdCtrlWritesTotal++;
                 if (MdTracerCore.MdLog.Enabled && !_mdCtrlPortLogged)
                 {
                     _mdCtrlPortLogged = true;
                     MdTracerCore.MdLog.WriteLine($"[VDP] MD control port write addr=0x{in_address:X6}");
                 }
+                LogVdpControlWrite(in_address, in_data, g_command_select);
                 if (!g_command_select)
                 {
                     if ((in_data & 0xc000) == 0x8000)
@@ -252,8 +257,28 @@ namespace EutherDrive.Core.MdTracerCore
                 {
                     // address set (2nd word)
                     g_command_select   = false;
-                    g_vdp_reg_code     = (int)((g_command_word >> 14) | ((in_data >> 2) & 0x3c));
-                    g_vdp_reg_dest_address = (ushort)((g_command_word & 0x3fff) | ((in_data & 0x0003) << 14));
+                    ushort first = g_command_word;
+                    ushort second = in_data;
+                    // Some ROMs write the command words in reverse order.
+                    if ((first & 0xC000) == 0x0000 && (second & 0xC000) == 0xC000)
+                    {
+                        ushort tmp = first;
+                        first = second;
+                        second = tmp;
+                    }
+                    int codeA = (int)((first >> 14) | ((second >> 2) & 0x3c));
+                    int codeB = (int)((second >> 14) | ((first >> 2) & 0x3c));
+                    int dataA = codeA & 0x0f;
+                    int dataB = codeB & 0x0f;
+                    if ((dataB == 1 || dataB == 3 || dataB == 5) && !(dataA == 1 || dataA == 3 || dataA == 5))
+                    {
+                        ushort tmp = first;
+                        first = second;
+                        second = tmp;
+                        codeA = codeB;
+                    }
+                    g_vdp_reg_code     = codeA;
+                    g_vdp_reg_dest_address = (ushort)((first & 0x3fff) | ((second & 0x0003) << 14));
 
                     if ((g_vdp_reg_code & 0x20) != 0 && g_vdp_reg_1_4_dma == 1)
                     {
@@ -287,11 +312,52 @@ namespace EutherDrive.Core.MdTracerCore
 
             if (in_address <= 0xc00007)
             {
+                if (in_address >= 0xc00004)
+                {
+                    // Some ROMs appear to write control words in the opposite order.
+                    bool wasWaiting = g_command_select;
+                    ushort hi = (ushort)(in_data >> 16);
+                    ushort lo = (ushort)(in_data & 0xffff);
+                    write16(in_address, hi);
+                    write16(in_address, lo);
+                    if (!wasWaiting && g_command_select)
+                    {
+                        g_command_select = false;
+                        write16(in_address, lo);
+                        write16(in_address, hi);
+                    }
+                    return;
+                }
                 write16(in_address, (ushort)(in_data >> 16));
                 write16(in_address, (ushort)(in_data & 0xffff));
                 return;
             }
             Error("write32: invalid address");
+        }
+
+        private void LogVdpDataWrite(uint in_address, ushort in_data)
+        {
+            if (!MdTracerCore.MdLog.Enabled)
+                return;
+            uint pc = md_m68k.g_reg_PC;
+            int code = g_vdp_reg_code & 0x07;
+            string target = GetDataTargetName(code);
+            string addrDesc = $"0x{g_vdp_reg_dest_address:X4}";
+            MdTracerCore.MdLog.WriteLine(
+                $"[VDPDATA] pc=0x{pc:X6} size=16 val=0x{in_data:X4} target={target} addr={addrDesc} autoinc={g_vdp_reg_15_autoinc}");
+        }
+
+        private void LogVdpControlWrite(uint in_address, ushort in_data, bool stageSecond)
+        {
+            if (!MdTracerCore.MdLog.Enabled)
+                return;
+            uint pc = md_m68k.g_reg_PC;
+            string stage = stageSecond ? "second" : "first";
+            string cmd = (stageSecond || (in_data & 0xC000) != 0x8000)
+                ? "addrCmd"
+                : $"regWrite rs=0x{((in_data >> 8) & 0x1F):X2}";
+            MdTracerCore.MdLog.WriteLine(
+                $"[VDPCTRL] pc=0x{pc:X6} size=16 val=0x{in_data:X4} stage={stage} cmd={cmd} addr=0x{in_address:X6} autoinc={g_vdp_reg_15_autoinc}");
         }
 
         private byte SmsReadData()
@@ -403,10 +469,28 @@ namespace EutherDrive.Core.MdTracerCore
             // MDs byte-swap på VRAM-porten: lågbyte går till “addr ^ 1”
             g_vram[addr] = (byte)(data >> 8);
             g_vram[(addr ^ 1) & 0xffff] = (byte)(data & 0xff);
+            _lastVramWriteAddr = (uint)(addr & 0xFFFF);
+            _lastVramWriteValue = data;
         }
 
         private void cram_set(int idx, ushort data)
         {
+            ushort prev = g_cram[idx];
+            if (prev != 0 && data == 0)
+            {
+                if (_cramNonZeroCount > 0)
+                    _cramNonZeroCount--;
+            }
+            else if (prev == 0 && data != 0)
+            {
+                _cramNonZeroCount++;
+                _cramLastNonZeroValid = true;
+                _cramLastNonZeroIdx = idx;
+                _cramLastNonZeroValue = data;
+                _cramLastNonZeroPc = md_m68k.g_reg_PC;
+                _cramLastNonZeroOp = md_m68k.g_opcode;
+            }
+
             g_cram[idx] = data;
 
             int r = (data & 0x000e) >> 1;
@@ -430,6 +514,54 @@ namespace EutherDrive.Core.MdTracerCore
             (uint)(COLOR_HIGHLIGHT[r] << 16) |
             (uint)(COLOR_HIGHLIGHT[g] << 8)  |
             (uint)(COLOR_HIGHLIGHT[b]);
+
+            if (TraceCram && MdTracerCore.MdLog.Enabled)
+            {
+                if (_cramLogCount < CramLogLimit)
+                {
+                    MdTracerCore.MdLog.WriteLine(
+                        $"[CRAM] write idx={idx:D2} val=0x{data:X4} nonZero={_cramNonZeroCount}");
+                    _cramLogCount++;
+                }
+
+                if (data == 0 && prev != 0 && _cramZeroWriteLogCount < 16)
+                {
+                    uint a0 = md_m68k.g_reg_addr[0].l;
+                    uint a1 = md_m68k.g_reg_addr[1].l;
+                    uint src = md_m68k.read32(a0);
+                    uint romSrc = 0;
+                    var cart = md_main.g_md_cartridge;
+                    if (cart != null && cart.g_file.Length >= (int)(a0 + 4))
+                    {
+                        int off = (int)a0;
+                        romSrc = (uint)((cart.g_file[off] << 24) |
+                                        (cart.g_file[off + 1] << 16) |
+                                        (cart.g_file[off + 2] << 8) |
+                                        cart.g_file[off + 3]);
+                    }
+                    MdTracerCore.MdLog.WriteLine(
+                        $"[CRAM] zero idx={idx:D2} pc=0x{md_m68k.g_reg_PC:X6} op=0x{md_m68k.g_opcode:X4} " +
+                        $"A0=0x{a0:X8} A1=0x{a1:X8} src=0x{src:X8} rom=0x{romSrc:X8} nonZero={_cramNonZeroCount}");
+                    _cramZeroWriteLogCount++;
+                }
+
+                if (_cramNonZeroCount == 0 && !_cramZeroLogged)
+                {
+                    _cramZeroLogged = true;
+                    MdTracerCore.MdLog.WriteLine(
+                        $"[CRAM] all entries zero pc=0x{md_m68k.g_reg_PC:X6} op=0x{md_m68k.g_opcode:X4}");
+                    if (_cramLastNonZeroValid)
+                    {
+                        MdTracerCore.MdLog.WriteLine(
+                            $"[CRAM] last non-zero idx={_cramLastNonZeroIdx:D2} val=0x{_cramLastNonZeroValue:X4} " +
+                            $"pc=0x{_cramLastNonZeroPc:X6} op=0x{_cramLastNonZeroOp:X4}");
+                    }
+                }
+                else if (data != 0)
+                {
+                    _cramZeroLogged = false;
+                }
+            }
         }
 
         private void pattern_chk(int in_address, byte _)

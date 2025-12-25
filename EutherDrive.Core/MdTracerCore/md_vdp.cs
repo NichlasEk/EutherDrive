@@ -8,6 +8,7 @@ namespace EutherDrive.Core.MdTracerCore
     internal partial class md_vdp
     {
         internal const ushort VDP_STATUS_VBLANK_MASK = 0x0080;
+        internal const ushort VDP_STATUS_DMA_MASK = 0x0002;
         private static readonly bool TraceMdVdp =
             string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_MD_VDP"), "1", StringComparison.Ordinal);
         public int g_scanline;
@@ -39,6 +40,10 @@ namespace EutherDrive.Core.MdTracerCore
         private int _mdDataWritesThisFrame;
         private int _mdVramWritesThisFrame;
         private int _mdCramWritesThisFrame;
+        private long _mdCtrlWritesTotal;
+        private long _mdDataWritesTotal;
+        private long _mdVramWritesTotal;
+        private long _mdCramWritesTotal;
         private int _mdNoWriteFrames;
         private bool _mdDataPortLogged;
         private bool _mdCtrlPortLogged;
@@ -48,9 +53,26 @@ namespace EutherDrive.Core.MdTracerCore
         private bool _forceMdVBlankLogged;
         private long _lastForcedMdVBlankFrame = -1;
         private long _lastTriggerVBlankLogFrame = -1;
-        private long _lastStatusReadLogFrame = -1;
+        private uint _lastVramWriteAddr = 0xFFFFFFFF;
+        private ushort _lastVramWriteValue;
         private static readonly bool TraceVdpTiming =
             string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_VDP_TIMING"), "1", StringComparison.Ordinal);
+        private static readonly bool TraceVdpFb =
+            string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_VDP_FB"), "1", StringComparison.Ordinal);
+        private static readonly bool TraceVram =
+            string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_VRAM"), "1", StringComparison.Ordinal);
+        private static readonly bool TraceCram =
+            string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_CRAM"), "1", StringComparison.Ordinal);
+        private const int CramLogLimit = 32;
+        private int _cramLogCount;
+        private bool _cramZeroLogged;
+        private int _cramNonZeroCount;
+        private int _cramZeroWriteLogCount;
+        private bool _cramLastNonZeroValid;
+        private int _cramLastNonZeroIdx;
+        private ushort _cramLastNonZeroValue;
+        private uint _cramLastNonZeroPc;
+        private ushort _cramLastNonZeroOp;
         private static readonly System.Diagnostics.Stopwatch _timingStopwatch = System.Diagnostics.Stopwatch.StartNew();
         private long _lastTimingLogFrame = -1;
         private long _lastTimingLogMs;
@@ -245,6 +267,129 @@ namespace EutherDrive.Core.MdTracerCore
             }
         }
 
+        private void MaybeLogVdpFramebuffer()
+        {
+            if (!TraceVdpFb || !MdTracerCore.MdLog.Enabled)
+                return;
+
+            if ((_frameCounter % 60) != 0)
+                return;
+
+            ushort c0 = 0, c1 = 0, c2 = 0, c3 = 0;
+            if (g_cram != null && g_cram.Length >= 4)
+            {
+                c0 = g_cram[0];
+                c1 = g_cram[1];
+                c2 = g_cram[2];
+                c3 = g_cram[3];
+            }
+
+            uint p0 = 0, p1 = 0, p2 = 0, p3 = 0;
+            if (g_game_screen != null && g_game_screen.Length >= 4)
+            {
+                p0 = g_game_screen[0];
+                p1 = g_game_screen[1];
+                p2 = g_game_screen[2];
+                p3 = g_game_screen[3];
+            }
+
+            byte r0 = 0, g0 = 0, b0 = 0, a0 = 0;
+            if (RgbaFrame != null && RgbaFrame.Length >= 4)
+            {
+                r0 = RgbaFrame[0];
+                g0 = RgbaFrame[1];
+                b0 = RgbaFrame[2];
+                a0 = RgbaFrame[3];
+            }
+
+            int nonBlackSamples = 0;
+            int sampleCount = 0;
+            if (g_game_screen != null && g_game_screen.Length > 0)
+            {
+                int step = Math.Max(1, g_game_screen.Length / 1024);
+                for (int i = 0; i < g_game_screen.Length; i += step)
+                {
+                    uint p = g_game_screen[i];
+                    if (p != 0 && p != 0xFF000000)
+                        nonBlackSamples++;
+                    sampleCount++;
+                }
+            }
+            int cmapNonZero = 0;
+            int cmapSamples = 0;
+            if (g_game_cmap != null && g_game_cmap.Length > 0)
+            {
+                int step = Math.Max(1, g_game_cmap.Length / 1024);
+                for (int i = 0; i < g_game_cmap.Length; i += step)
+                {
+                    if (g_game_cmap[i] != 0)
+                        cmapNonZero++;
+                    cmapSamples++;
+                }
+            }
+
+            MdTracerCore.MdLog.WriteLine(
+                $"[VDPFB] frame={_frameCounter} cram=0x{c0:X4},0x{c1:X4},0x{c2:X4},0x{c3:X4} " +
+                $"screen=0x{p0:X8},0x{p1:X8},0x{p2:X8},0x{p3:X8} " +
+                $"rgba0={r0:X2}{g0:X2}{b0:X2}{a0:X2} back=0x{g_vdp_reg_7_backcolor:X2}");
+            MdTracerCore.MdLog.WriteLine(
+                $"[VDPFB] samples nonBlack={nonBlackSamples} total={sampleCount} cmapNonZero={cmapNonZero} cmapTotal={cmapSamples}");
+            ushort a0w = VramPeekWord(g_vdp_reg_2_scrolla);
+            ushort b0w = VramPeekWord(g_vdp_reg_4_scrollb);
+            ushort w0 = VramPeekWord(g_vdp_reg_3_windows);
+            ushort h0 = VramPeekWord(g_vdp_reg_13_hscroll);
+            MdTracerCore.MdLog.WriteLine(
+                $"[VDPREG] reg2=0x{g_vdp_reg_2_scrolla:X4} wA0=0x{a0w:X4} " +
+                $"reg4=0x{g_vdp_reg_4_scrollb:X4} wB0=0x{b0w:X4} " +
+                $"reg3=0x{g_vdp_reg_3_windows:X4} wW0=0x{w0:X4} " +
+                $"reg13=0x{g_vdp_reg_13_hscroll:X4} wH0=0x{h0:X4} " +
+                $"reg11=0x{g_vdp_reg_11_1_hscroll:X2} reg16=V{g_vdp_reg_16_5_scrollV} H{g_vdp_reg_16_1_scrollH}");
+        }
+
+        private ushort VramPeekWord(int addr)
+        {
+            if (g_vram == null || g_vram.Length == 0)
+                return 0;
+            int a = addr & 0xFFFF;
+            int b = (a + 1) & 0xFFFF;
+            return (ushort)((g_vram[a] << 8) | g_vram[b]);
+        }
+
+        private void MaybeLogVramState()
+        {
+            if (!TraceVram || !MdTracerCore.MdLog.Enabled)
+                return;
+
+            if ((_frameCounter % 60) != 0)
+                return;
+
+            uint addr = _lastVramWriteAddr & 0xFFFF;
+            int raddr = (int)((addr >> 1) & (VRAM_DATASIZE - 1));
+            uint v0 = 0, v1 = 0, v2 = 0, v3 = 0;
+            uint rv0 = 0, rv1 = 0, rv2 = 0, rv3 = 0;
+
+            if (g_vram != null && g_vram.Length >= 0x62)
+            {
+                v0 = (uint)((g_vram[0x00] << 8) | g_vram[0x01]);
+                v1 = (uint)((g_vram[0x20] << 8) | g_vram[0x21]);
+                v2 = (uint)((g_vram[0x40] << 8) | g_vram[0x41]);
+                v3 = (uint)((g_vram[0x60] << 8) | g_vram[0x61]);
+            }
+            if (g_renderer_vram != null && g_renderer_vram.Length > 0)
+            {
+                int max = g_renderer_vram.Length - 1;
+                rv0 = g_renderer_vram[Math.Min(raddr, max)];
+                rv1 = g_renderer_vram[Math.Min(raddr + 1, max)];
+                rv2 = g_renderer_vram[Math.Min(raddr + 2, max)];
+                rv3 = g_renderer_vram[Math.Min(raddr + 3, max)];
+            }
+
+            MdTracerCore.MdLog.WriteLine(
+                $"[VRAM] frame={_frameCounter} last=0x{addr:X4} val=0x{_lastVramWriteValue:X4} " +
+                $"vram=0x{v0:X4},0x{v1:X4},0x{v2:X4},0x{v3:X4} " +
+                $"rend=0x{rv0:X8},0x{rv1:X8},0x{rv2:X8},0x{rv3:X8}");
+        }
+
         private void SmsLogFrameHash()
         {
             if (!md_main.g_masterSystemMode || !MdTracerCore.MdLog.Enabled)
@@ -421,13 +566,19 @@ namespace EutherDrive.Core.MdTracerCore
 
         private void LogStatusRead(ushort preStatus, ushort postStatus)
         {
-            if (!TraceMdVdp)
-                return;
-            if (_lastStatusReadLogFrame == _frameCounter)
-                return;
-            _lastStatusReadLogFrame = _frameCounter;
-            int vblankPre = ((preStatus & VDP_STATUS_VBLANK_MASK) != 0) ? 1 : 0;
-            Console.WriteLine($"[VDP] StatusRead frame={_frameCounter} pre=0x{preStatus:X4} post=0x{postStatus:X4} vblankPre={vblankPre}");
+            if (TraceMdVdp)
+            {
+                int vblankPre = ((preStatus & VDP_STATUS_VBLANK_MASK) != 0) ? 1 : 0;
+                Console.WriteLine($"[VDP] StatusRead frame={_frameCounter} pre=0x{preStatus:X4} post=0x{postStatus:X4} vblankPre={vblankPre}");
+            }
+            if (MdTracerCore.MdLog.Enabled)
+            {
+                int vblank = (preStatus & VDP_STATUS_VBLANK_MASK) != 0 ? 1 : 0;
+                int vint = md_m68k.g_interrupt_V_req ? 1 : 0;
+                int dma = (preStatus & VDP_STATUS_DMA_MASK) != 0 ? 1 : 0;
+                MdTracerCore.MdLog.WriteLine(
+                    $"[VDPSTATUS] frame={_frameCounter} status=0x{preStatus:X4} vblank={vblank} vinterrupt={vint} dma={dma}");
+            }
         }
 
         private void LogForcedVBlank()
@@ -450,7 +601,7 @@ namespace EutherDrive.Core.MdTracerCore
             bool log = (_frameCounter % 60) == 0 || _mdNoWriteFrames == 120;
             if (log)
             {
-                MdTracerCore.MdLog.WriteLine($"[VDP] md writes frame={_frameCounter} ctrl={_mdCtrlWritesThisFrame} data={_mdDataWritesThisFrame} vram={_mdVramWritesThisFrame} cram={_mdCramWritesThisFrame} zeroFrames={_mdNoWriteFrames}");
+                MdTracerCore.MdLog.WriteLine($"[VDP] md writes frame={_frameCounter} ctrl={_mdCtrlWritesThisFrame} data={_mdDataWritesThisFrame} vram={_mdVramWritesThisFrame} cram={_mdCramWritesThisFrame} zeroFrames={_mdNoWriteFrames} totalCtrl={_mdCtrlWritesTotal} totalData={_mdDataWritesTotal} totalVram={_mdVramWritesTotal} totalCram={_mdCramWritesTotal}");
             }
 
             _mdCtrlWritesThisFrame = 0;

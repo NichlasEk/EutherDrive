@@ -39,6 +39,26 @@ public sealed class MegaDriveBus
         string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_BUS"), "1", StringComparison.Ordinal);
     private static readonly bool TraceZ80Win =
         string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_Z80WIN"), "1", StringComparison.Ordinal);
+    private static readonly bool TraceWramTable =
+        string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_WRAMTABLE"), "1", StringComparison.Ordinal);
+    private static readonly bool TraceWramAny =
+        string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_WRAM"), "1", StringComparison.Ordinal);
+    private static readonly bool TraceWramTableSlots =
+        string.Equals(Environment.GetEnvironmentVariable("EUTHERDRIVE_TRACE_WRAMSLOTS"), "1", StringComparison.Ordinal);
+    private const uint WramTableStart = 0xFF0540;
+    private const uint WramTableEnd = 0xFF0580;
+    private const uint WramTableSlot0 = 0xFF0556;
+    private const uint WramTableSlot1 = 0xFF055A;
+    private int _wramTableLogRemaining = 32;
+    private int _wramTableTotal;
+    private bool _wramTableSummaryLogged;
+    private int _wramTableReadLogRemaining = 8;
+    private int _wramTableReadTotal;
+    private bool _wramTableReadSummaryLogged;
+    private int _wramAnyLogRemaining = 8;
+    private long _wramAnyTotal;
+    private bool _wramAnySummaryLogged;
+    private int _wramTableSlotLogRemaining = 16;
 
     public MegaDriveBus(byte[] rom)
     {
@@ -66,6 +86,16 @@ public sealed class MegaDriveBus
         _vdpNormalizeLogged = false;
         _vdpNotRoutedDataLogged = false;
         _vdpNotRoutedCtrlLogged = false;
+        _wramTableLogRemaining = 32;
+        _wramTableTotal = 0;
+        _wramTableSummaryLogged = false;
+        _wramTableReadLogRemaining = 8;
+        _wramTableReadTotal = 0;
+        _wramTableReadSummaryLogged = false;
+        _wramAnyLogRemaining = 8;
+        _wramAnyTotal = 0;
+        _wramAnySummaryLogged = false;
+        _wramTableSlotLogRemaining = 16;
     }
 
     private static bool IsVdpPort(uint addr) => (addr & 0xFFFFE0) == 0xC00000;
@@ -298,6 +328,20 @@ public sealed class MegaDriveBus
         uint b2 = Read8Core(addr + 2);
         uint b3 = Read8Core(addr + 3);
         uint value = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+        if (TraceWramTable && addr >= WramTableStart && addr <= WramTableEnd)
+        {
+            _wramTableReadTotal++;
+            if (_wramTableReadLogRemaining > 0)
+            {
+                _wramTableReadLogRemaining--;
+                Console.WriteLine($"[WRAMTAB] R32 addr=0x{addr:X6} val=0x{value:X8} total={_wramTableReadTotal}");
+                if (_wramTableReadLogRemaining == 0 && !_wramTableReadSummaryLogged)
+                {
+                    _wramTableReadSummaryLogged = true;
+                    Console.WriteLine($"[WRAMTAB] read summary total={_wramTableReadTotal} range=0x{WramTableStart:X6}-0x{WramTableEnd:X6}");
+                }
+            }
+        }
         md_m68k.RecordBusAccess(addr, 4, false, value);
         return value;
     }
@@ -386,6 +430,42 @@ public sealed class MegaDriveBus
         {
             int i = (int)(addr & 0xFFFF);
             _wram[i] = value;
+            if (TraceWramTableSlots && addr >= WramTableSlot0 && addr <= (WramTableSlot1 + 3))
+            {
+                if (_wramTableSlotLogRemaining > 0)
+                {
+                    _wramTableSlotLogRemaining--;
+                    Console.WriteLine($"[WRAMSLOT] W8 addr=0x{addr:X6} val=0x{value:X2}");
+                }
+            }
+            if (TraceWramAny)
+            {
+                _wramAnyTotal++;
+                if (_wramAnyLogRemaining > 0)
+                {
+                    _wramAnyLogRemaining--;
+                    Console.WriteLine($"[WRAM] W8 addr=0x{addr:X6} val=0x{value:X2} total={_wramAnyTotal}");
+                    if (_wramAnyLogRemaining == 0 && !_wramAnySummaryLogged)
+                    {
+                        _wramAnySummaryLogged = true;
+                        Console.WriteLine($"[WRAM] summary total={_wramAnyTotal}");
+                    }
+                }
+            }
+            if (TraceWramTable && addr >= WramTableStart && addr <= WramTableEnd)
+            {
+                _wramTableTotal++;
+                if (_wramTableLogRemaining > 0)
+                {
+                    _wramTableLogRemaining--;
+                    Console.WriteLine($"[WRAMTAB] W8 addr=0x{addr:X6} val=0x{value:X2} total={_wramTableTotal}");
+                    if (_wramTableLogRemaining == 0 && !_wramTableSummaryLogged)
+                    {
+                        _wramTableSummaryLogged = true;
+                        Console.WriteLine($"[WRAMTAB] summary total={_wramTableTotal} range=0x{WramTableStart:X6}-0x{WramTableEnd:X6}");
+                    }
+                }
+            }
             md_m68k.RecordBusAccess(addr, 1, true, value);
             return;
         }

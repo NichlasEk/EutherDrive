@@ -102,6 +102,8 @@ namespace EutherDrive.Core.MdTracerCore
             // “Lås in” det som behövs för postprocess/analys
             rendering_frame_snap();
             UpdateRgbaFrameFromGameScreen();
+            MaybeLogVdpFramebuffer();
+            MaybeLogVramState();
             SmsLogFrameHash();
             _frameCounter++;
             LogMdWriteSummary();

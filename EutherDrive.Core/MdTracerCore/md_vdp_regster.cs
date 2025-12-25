@@ -144,10 +144,13 @@ namespace EutherDrive.Core.MdTracerCore
                         g_display_ycell    = 30;
                         g_vertical_line_max = 312;
                     }
+                    LogVdpRegisterGeneral(1, in_data,
+                        $"display={g_vdp_reg_1_6_display} vint={g_vdp_reg_1_5_vinterrupt} dma={g_vdp_reg_1_4_dma} cell={g_vdp_reg_1_3_cellmode}");
                     break;
 
                 case 2:
                     g_vdp_reg_2_scrolla = (ushort)(in_data << 10);
+                    LogVdpRegisterGeneral(2, in_data, $"scrollA=0x{g_vdp_reg_2_scrolla:X4}");
                     break;
 
                 case 3:
@@ -155,10 +158,12 @@ namespace EutherDrive.Core.MdTracerCore
                         g_vdp_reg_3_windows = (ushort)((in_data & 0x3e) << 10);
                 else
                     g_vdp_reg_3_windows = (ushort)((in_data & 0x3c) << 10);
-                break;
+                    LogVdpRegisterGeneral(3, in_data, $"windowBase=0x{g_vdp_reg_3_windows:X4}");
+                    break;
 
                 case 4:
                     g_vdp_reg_4_scrollb = (ushort)(in_data << 13);
+                    LogVdpRegisterGeneral(4, in_data, $"scrollB=0x{g_vdp_reg_4_scrollb:X4}");
                     break;
 
                 case 5:
@@ -218,10 +223,12 @@ namespace EutherDrive.Core.MdTracerCore
 
                 case 13:
                     g_vdp_reg_13_hscroll = (ushort)(in_data << 10);
+                    LogVdpRegisterGeneral(13, in_data, $"hScroll=0x{g_vdp_reg_13_hscroll:X4}");
                     break;
 
                 case 15:
                     g_vdp_reg_15_autoinc = in_data;
+                    LogVdpRegisterGeneral(15, in_data, $"autoinc={g_vdp_reg_15_autoinc}");
                     break;
 
                 case 16:
@@ -235,6 +242,8 @@ namespace EutherDrive.Core.MdTracerCore
                     g_scroll_xcell      = 32 * (g_vdp_reg_16_1_scrollH + 1);
                     g_scroll_xsize      = g_scroll_xcell << 3;
                     g_scroll_xsize_mask = g_scroll_xsize - 1;
+                    LogVdpRegisterGeneral(16, in_data,
+                        $"scrollV={(g_vdp_reg_16_5_scrollV + 1)} scrollH={(g_vdp_reg_16_1_scrollH + 1)}");
                     break;
 
                 case 17:
@@ -271,6 +280,8 @@ namespace EutherDrive.Core.MdTracerCore
                             g_screenA_right_x = g_display_xsize - 1;
                         }
                     }
+                    LogVdpRegisterGeneral(17, in_data,
+                        $"windowLeft={g_screenA_left_x} windowRight={g_screenA_right_x}");
                     break;
                 }
 
@@ -308,30 +319,62 @@ namespace EutherDrive.Core.MdTracerCore
                             g_screenA_bottom_y = g_display_ysize - 1;
                         }
                     }
+                    LogVdpRegisterGeneral(18, in_data,
+                        $"windowTop={g_screenA_top_y} windowBottom={g_screenA_bottom_y}");
                     break;
                 }
 
                 case 19:
                     g_vdp_reg_19_dma_counter_low = in_data;
+                    LogVdpRegisterGeneral(19, in_data, $"dmaLenLow=0x{g_vdp_reg_19_dma_counter_low:X2}");
+                    LogDmaRegisterSnapshot("reg19 set");
                     break;
 
                 case 20:
                     g_vdp_reg_20_dma_counter_high = in_data;
+                    LogVdpRegisterGeneral(20, in_data, $"dmaLenHigh=0x{g_vdp_reg_20_dma_counter_high:X2}");
+                    LogDmaRegisterSnapshot("reg20 set");
                     break;
 
                 case 21:
                     g_vdp_reg_21_dma_source_low = in_data;
+                    LogVdpRegisterGeneral(21, in_data, $"dmaSrcLow=0x{g_vdp_reg_21_dma_source_low:X2}");
+                    LogDmaRegisterSnapshot("reg21 set");
                     break;
 
                 case 22:
                     g_vdp_reg_22_dma_source_mid = in_data;
+                    LogVdpRegisterGeneral(22, in_data, $"dmaSrcMid=0x{g_vdp_reg_22_dma_source_mid:X2}");
+                    LogDmaRegisterSnapshot("reg22 set");
                     break;
 
                 case 23:
                     g_vdp_reg_23_dma_mode = (byte)((in_data >> 6) & 0x03);
                     g_vdp_reg_23_5_dma_high = (byte)((in_data & 0x80) == 0 ? (in_data & 0x7f) : (in_data & 0x3f));
+                    LogVdpRegisterGeneral(23, in_data,
+                        $"dmaMode={g_vdp_reg_23_dma_mode} dmaHigh=0x{g_vdp_reg_23_5_dma_high:X2}");
+                    LogDmaRegisterSnapshot("reg23 set");
                     break;
             }
+        }
+
+        private void LogVdpRegisterGeneral(int reg, byte data, string extra)
+        {
+            if (!MdTracerCore.MdLog.Enabled)
+                return;
+            MdTracerCore.MdLog.WriteLine($"[VDPREG] reg{reg}=0x{data:X2} {extra}");
+        }
+
+        private void LogDmaRegisterSnapshot(string context)
+        {
+            if (!MdTracerCore.MdLog.Enabled)
+                return;
+            uint src = read_dma_src_addr();
+            int len = read_dma_leng();
+            string type = GetDmaTypeName(g_vdp_reg_23_dma_mode);
+            ushort dest = g_vdp_reg_dest_address;
+            MdTracerCore.MdLog.WriteLine(
+                $"[VDPREG] {context} dmaType={type} mode={g_vdp_reg_23_dma_mode} src=0x{src:X6} len={len} dest=0x{dest:X4} fill=0x{g_dma_fill_data:X4}");
         }
     }
 }

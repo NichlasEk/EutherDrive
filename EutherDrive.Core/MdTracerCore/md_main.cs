@@ -119,6 +119,8 @@ namespace EutherDrive.Core.MdTracerCore
                 g_hard_reset_req = false;
             }
 
+            g_md_io?.NewFrame();
+
             int lines = g_md_vdp.g_vertical_line_max;
             int z80LineBudget = SmsCyclesPerLine;
 

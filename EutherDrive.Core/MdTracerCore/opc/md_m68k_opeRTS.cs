@@ -9,6 +9,10 @@ namespace EutherDrive.Core.MdTracerCore
             g_clock += 16;
             uint w_pc = g_reg_PC;
             g_reg_PC = stack_pop32();
+            if (g_reg_PC < 0x200)
+            {
+                Console.WriteLine($"[RTS] oldPC=0x{w_pc:X6} newPC=0x{g_reg_PC:X6} SP=0x{g_reg_addr[7].l:X8}");
+            }
             md_main.g_form_code_trace.CPU_Trace_pop(g_reg_PC, w_pc, g_reg_addr[7].l);
         }
    }

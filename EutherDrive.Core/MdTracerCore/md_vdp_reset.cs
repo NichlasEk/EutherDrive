@@ -16,6 +16,15 @@ namespace EutherDrive.Core.MdTracerCore
 
             if (g_cram != null && g_cram.Length > 0)
                 Array.Clear(g_cram, 0, g_cram.Length);
+            _cramLogCount = 0;
+            _cramNonZeroCount = 0;
+            _cramZeroLogged = false;
+            _cramZeroWriteLogCount = 0;
+            _cramLastNonZeroValid = false;
+            _cramLastNonZeroIdx = 0;
+            _cramLastNonZeroValue = 0;
+            _cramLastNonZeroPc = 0;
+            _cramLastNonZeroOp = 0;
 
             if (g_vsram != null && g_vsram.Length > 0)
                 Array.Clear(g_vsram, 0, g_vsram.Length);
@@ -115,7 +124,6 @@ namespace EutherDrive.Core.MdTracerCore
             _lastForcedVBlankFrame = -1;
             _lastForcedMdVBlankFrame = -1;
             _lastTriggerVBlankLogFrame = -1;
-            _lastStatusReadLogFrame = -1;
 
             _smsBeWritesThisFrame = 0;
             _smsBfWritesThisFrame = 0;
