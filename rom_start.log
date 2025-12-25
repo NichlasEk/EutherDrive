@@ -1,20 +1,29 @@
 [LOG] writing to /home/nichlas/EutherDrive/rom_start.log
-[MdTracerAdapter] LoadRom request: path='/home/nichlas/Hämtningar/Taz-Mania/Taz-Mania.bin' ext='.bin' thread=1
-[MdTracerAdapter] Vector check SP=0x00FFC7B8 PC=0x00002886
+[MdTracerAdapter] LoadRom request: path='/home/nichlas/Hämtningar/QuackShot Starring Donald Duck (World) (En,Ja).md' ext='.md' thread=1
+[MdTracerAdapter] Vector check SP=0x00FFFF00 PC=0x00000206
 [MdTracerAdapter] Reset begin
 [MdTracerAdapter] Reset framebuffer 320x224 stride=1280
-ROM bytes: 524288 | Header@0x100: 'SEGA' | WRAM@FF0000: 0x1234ABCD | VEC SP=0x00FFC7B8 PC=0x00002886 OP@PC=0x4AB9 | CPU API ok
-[MainWindow] Early magenta ready after 171,2 ms
-[MdTracerAdapter] perf avg/frame=56,59ms CPU=50,44ms VDP=6,12ms GC0=382 GC1=35 GC2=6
-[MdTracerAdapter] perf avg/frame=62,53ms CPU=56,33ms VDP=6,17ms GC0=6 GC1=0 GC2=0
-[MdTracerAdapter] perf avg/frame=58,92ms CPU=52,99ms VDP=5,90ms GC0=6 GC1=1 GC2=0
-[MdTracerAdapter] perf avg/frame=57,91ms CPU=51,91ms VDP=5,97ms GC0=7 GC1=0 GC2=0
-[MdTracerAdapter] perf avg/frame=59,61ms CPU=53,64ms VDP=5,94ms GC0=6 GC1=1 GC2=0
-[MdTracerAdapter] perf avg/frame=61,33ms CPU=55,31ms VDP=5,99ms GC0=8 GC1=1 GC2=1
-[MdTracerAdapter] perf avg/frame=59,63ms CPU=53,55ms VDP=6,05ms GC0=7 GC1=0 GC2=0
-[MdTracerAdapter] perf avg/frame=63,04ms CPU=56,70ms VDP=6,31ms GC0=6 GC1=1 GC2=0
-[MdTracerAdapter] perf avg/frame=59,19ms CPU=53,17ms VDP=5,99ms GC0=7 GC1=0 GC2=0
-[MdTracerAdapter] perf avg/frame=60,64ms CPU=54,75ms VDP=5,86ms GC0=6 GC1=1 GC2=0
-[MdTracerAdapter] perf avg/frame=59,67ms CPU=53,42ms VDP=6,21ms GC0=7 GC1=0 GC2=0
-[MdTracerAdapter] perf avg/frame=56,87ms CPU=50,10ms VDP=6,74ms GC0=6 GC1=1 GC2=0
-[MdTracerAdapter] perf avg/frame=53,59ms CPU=47,06ms VDP=6,50ms GC0=6 GC1=0 GC2=0
+ROM bytes: 524288 | Header@0x100: 'SEGA' | WRAM@FF0000: 0x1234ABCD | VEC SP=0x00FFFF00 PC=0x00000206 OP@PC=0x4AB9 | CPU API ok
+[MainWindow] Early magenta ready after 3004,4 ms
+[MdTracerAdapter] perf avg/frame=80,14ms CPU=77,37ms VDP=2,70ms GC0=10 GC1=4 GC2=2
+[MdTracerAdapter] perf avg/frame=51,72ms CPU=45,50ms VDP=6,18ms GC0=6 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=55,18ms CPU=49,23ms VDP=5,91ms GC0=6 GC1=1 GC2=0
+[MdTracerAdapter] perf avg/frame=72,88ms CPU=70,48ms VDP=2,35ms GC0=7 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=54,38ms CPU=48,26ms VDP=6,08ms GC0=6 GC1=1 GC2=0
+[MdTracerAdapter] perf avg/frame=52,26ms CPU=45,53ms VDP=6,69ms GC0=6 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=54,46ms CPU=47,81ms VDP=6,61ms GC0=6 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=65,70ms CPU=59,54ms VDP=6,12ms GC0=7 GC1=1 GC2=0
+[MdTracerAdapter] perf avg/frame=56,26ms CPU=50,89ms VDP=5,33ms GC0=6 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=58,14ms CPU=51,43ms VDP=6,66ms GC0=6 GC1=1 GC2=0
+[MdTracerAdapter] perf avg/frame=61,77ms CPU=58,13ms VDP=3,60ms GC0=7 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=56,80ms CPU=51,32ms VDP=5,44ms GC0=6 GC1=1 GC2=0
+[MdTracerAdapter] perf avg/frame=64,65ms CPU=61,72ms VDP=2,89ms GC0=7 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=58,13ms CPU=52,70ms VDP=5,38ms GC0=6 GC1=1 GC2=0
+[MdTracerAdapter] perf avg/frame=53,68ms CPU=46,98ms VDP=6,65ms GC0=6 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=52,52ms CPU=45,90ms VDP=6,57ms GC0=6 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=63,65ms CPU=58,58ms VDP=5,03ms GC0=6 GC1=1 GC2=0
+[MdTracerAdapter] perf avg/frame=63,82ms CPU=61,42ms VDP=2,36ms GC0=7 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=57,91ms CPU=52,82ms VDP=5,04ms GC0=6 GC1=1 GC2=0
+[MdTracerAdapter] perf avg/frame=51,68ms CPU=44,74ms VDP=6,90ms GC0=6 GC1=0 GC2=0
+[MdTracerAdapter] perf avg/frame=51,47ms CPU=44,47ms VDP=6,95ms GC0=5 GC1=1 GC2=0
+[MdTracerAdapter] perf avg/frame=52,27ms CPU=45,32ms VDP=6,91ms GC0=6 GC1=0 GC2=0

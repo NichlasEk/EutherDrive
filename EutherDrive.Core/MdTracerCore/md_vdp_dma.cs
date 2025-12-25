@@ -211,12 +211,6 @@ namespace EutherDrive.Core.MdTracerCore
                     } while (--w_loop_cnt > 0);
                     break;
             }
-            // immediate completion: clear DMA busy flags so the CPU can continue without polling stale status bits.
-            g_dma_leng = 0;
-            g_dma_mode = 0;
-            g_vdp_status_1_dma = 0;
-            g_vdp_status_8_full = 0;
-            write_dma_leng();
             LogDmaResult(trace, w_loop_total);
         }
         private void dma_run_copy_req()
