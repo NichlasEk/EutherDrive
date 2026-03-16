@@ -354,6 +354,7 @@ public partial class MainWindow : Window
     private bool _heartbeatState;
     private Thread? _emuThread;
     private volatile bool _emuRunning;
+    private int _emuLoopGeneration;
     private double _emuTargetFps = 60.0;
     private int _padTypeRaw = (int)PadType.ThreeButton;
     private WindowState _prevWindowState = WindowState.Normal;
@@ -1770,6 +1771,8 @@ public partial class MainWindow : Window
             // Deterministic restart: stop audio thread/sink before loading next ROM.
             // Prevents stale queued audio and startup races across ROM switches.
             StopAudioEngine();
+            StopHeartbeat();
+            ResetPresentationState(clearBitmap: true);
             _frames = 0;
             _fpsSw.Restart();
             _earlyMagentaTimer.Restart();
@@ -4312,11 +4315,8 @@ public partial class MainWindow : Window
         _audioOutput = null;
         if (SplashImage != null)
             SplashImage.IsVisible = true;
-        if (_heartbeatTimer != null)
-        {
-            _heartbeatTimer.Stop();
-            _heartbeatTimer = null;
-        }
+        StopHeartbeat();
+        ResetPresentationState(clearBitmap: true);
         _toneTestRunning = false;
         _psgBlipRunning = false;
     }
@@ -5694,10 +5694,33 @@ public partial class MainWindow : Window
     private long _uiProfileSubmitTicks;
     private long _uiProfileRenderTicks;
 
+    private void ResetPresentationState(bool clearBitmap)
+    {
+        _pendingPresentCore = null;
+        _lastCoreFrameId = -1;
+        _presentTickCounter = 0;
+        _lastPresentedWidth = 0;
+        _lastPresentedHeight = 0;
+        _presentedFrames = 0;
+
+        if (!clearBitmap)
+            return;
+
+        _wb = null;
+        if (ScreenImage != null)
+            ScreenImage.Source = null;
+    }
+
     private unsafe void RenderFrame(IEmulatorCore core)
     {
+        if (!ReferenceEquals(core, _core))
+            return;
+
         long renderStart = TraceUiProfile ? Stopwatch.GetTimestamp() : 0;
         var src = core.GetFrameBuffer(out var w, out var h, out var srcStride);
+        long currentFrameId = TryGetCoreFrameCounter(core) ?? _presentTickCounter;
+        if (core is InterlaceTestCore itc)
+            currentFrameId = itc.GetFrameId();
         if (src.IsEmpty || srcStride <= 0 || w <= 0 || h <= 0)
         {
             if (TraceUiPresent)
@@ -5713,10 +5736,6 @@ public partial class MainWindow : Window
         ApplyPsxAspectIfNeeded(core, w, h);
 
         // Check if this is actually a new frame
-        long currentFrameId = TryGetCoreFrameCounter(core) ?? _presentTickCounter;
-        if (core is InterlaceTestCore itc)
-            currentFrameId = itc.GetFrameId();
-
         bool isNewFrame = currentFrameId != _lastCoreFrameId;
         _lastCoreFrameId = currentFrameId;
 
@@ -5973,7 +5992,8 @@ public partial class MainWindow : Window
     private void PresentPendingFrame()
     {
         var core = _pendingPresentCore;
-        if (core != null)
+        _pendingPresentCore = null;
+        if (core != null && ReferenceEquals(core, _core))
             RenderFrame(core);
     }
 
@@ -5994,9 +6014,11 @@ public partial class MainWindow : Window
             return;
 
         _ymStopDumpIssued = false;
+        int generation = unchecked(_emuLoopGeneration + 1);
+        _emuLoopGeneration = generation;
         _emuRunning = true;
-        Console.WriteLine($"[EmuLoop] Starting thread for core={_core.GetType().Name}");
-        _emuThread = new Thread(EmuLoop)
+        Console.WriteLine($"[EmuLoop] Starting thread for core={_core.GetType().Name} gen={generation}");
+        _emuThread = new Thread(() => EmuLoop(generation))
         {
             IsBackground = true,
             Name = "EmuLoop",
@@ -6007,15 +6029,25 @@ public partial class MainWindow : Window
 
     private void StopEmuLoop()
     {
+        int stopGeneration = unchecked(_emuLoopGeneration + 1);
+        _emuLoopGeneration = stopGeneration;
         _emuRunning = false;
-        if (_emuThread == null)
+        var thread = _emuThread;
+        if (thread == null)
         {
             MaybeDumpMdYmStateOnStop("stop-no-thread");
             MaybeDumpSnesDspStateOnStop("stop-no-thread");
             return;
         }
-        if (!_emuThread.Join(1000))
-            _emuThread.Interrupt();
+
+        if (!thread.Join(1000))
+        {
+            Console.WriteLine("[EmuLoop] Join timed out, interrupting thread");
+            thread.Interrupt();
+            if (!thread.Join(1000))
+                Console.WriteLine($"[EmuLoop] Thread still alive after interrupt oldGen={stopGeneration - 1}");
+        }
+
         _emuThread = null;
         MaybeDumpMdYmStateOnStop("stop");
         MaybeDumpSnesDspStateOnStop("stop");
@@ -6070,9 +6102,9 @@ public partial class MainWindow : Window
         rom.DumpRecentDspIo(reason, recentIoCount);
     }
 
-    private void EmuLoop()
+    private void EmuLoop(int generation)
     {
-        Console.WriteLine("[EmuLoop] Thread entered");
+        Console.WriteLine($"[EmuLoop] Thread entered gen={generation}");
         double targetFps = GetLiveTargetFps();
         double ticksPerFrame = Stopwatch.Frequency / targetFps;
         double nextTick = Stopwatch.GetTimestamp();
@@ -6147,7 +6179,7 @@ public partial class MainWindow : Window
             return hash;
         }
 
-        while (_emuRunning)
+        while (_emuRunning && generation == _emuLoopGeneration)
         {
             double currentTarget = GetLiveTargetFps();
             if (Math.Abs(currentTarget - targetFps) > 0.001)
@@ -6374,11 +6406,14 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 Console.WriteLine("[EmuLoop] RunFrame exception: " + ex);
-                Dispatcher.UIThread.Post(() =>
+                if (generation == _emuLoopGeneration)
                 {
-                    StatusText.Text = $"EmuLoop failed: {ex.GetType().Name}: {ex.Message}";
-                });
-                _emuRunning = false;
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        StatusText.Text = $"EmuLoop failed: {ex.GetType().Name}: {ex.Message}";
+                    });
+                    _emuRunning = false;
+                }
                 break;
             }
 
@@ -6450,7 +6485,7 @@ public partial class MainWindow : Window
         uiMdTraceWriter?.Dispose();
         MaybeDumpMdYmStateOnStop("thread-exit");
         MaybeDumpSnesDspStateOnStop("thread-exit");
-        Console.WriteLine("[EmuLoop] Thread exiting");
+        Console.WriteLine($"[EmuLoop] Thread exiting gen={generation}");
     }
 
     private void CatchUpAudio(IEmulatorCore core)
@@ -6892,6 +6927,15 @@ public partial class MainWindow : Window
         if (_core is PsxAdapter psx)
             return psx.GetTargetFps() * _speedScale;
         return Volatile.Read(ref _emuTargetFps) * _speedScale;
+    }
+
+    private void StopHeartbeat()
+    {
+        if (_heartbeatTimer == null)
+            return;
+
+        _heartbeatTimer.Stop();
+        _heartbeatTimer = null;
     }
 
     private unsafe void StartHeartbeat()
