@@ -296,6 +296,7 @@ public sealed class PsxAdapter : IEmulatorCore, ISavestateCapable
                 _core.GPU.ResyncAfterLoad(_host);
             ApplyConfiguredTimingToCore(_core);
             StateBinarySerializer.ReadInto(reader, _core.CDROM);
+            _core.CDROM.RefreshRuntimeSettings();
             StateBinarySerializer.ReadInto(reader, _core.JOYPAD);
             StateBinarySerializer.ReadInto(reader, _core.Timers);
             StateBinarySerializer.ReadInto(reader, _core.MDEC);
@@ -449,7 +450,7 @@ public sealed class PsxAdapter : IEmulatorCore, ISavestateCapable
         }
     }
 
-    public bool TryGetDebugCodeWindow(out string codeWindow, int wordsBefore = 8, int wordsAfter = 16)
+    public bool TryGetDebugCodeWindow(out string codeWindow, int wordsBefore = 8, int wordsAfter = 16, uint? address = null)
     {
         lock (_stateLock)
         {
@@ -459,7 +460,9 @@ public sealed class PsxAdapter : IEmulatorCore, ISavestateCapable
                 return false;
             }
 
-            codeWindow = _core.DebugCodeWindow(wordsBefore, wordsAfter);
+            codeWindow = address.HasValue
+                ? _core.DebugCodeWindowAt(address.Value, wordsBefore, wordsAfter)
+                : _core.DebugCodeWindow(wordsBefore, wordsAfter);
             return true;
         }
     }
