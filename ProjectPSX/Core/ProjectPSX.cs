@@ -200,7 +200,10 @@ namespace ProjectPSX {
         }
 
         private static int ParseBusTickBatchCycles() {
-            const int fallback = 192;
+            // Spyro YOTD and similar titles busy-wait on GPU/timer-visible state during CD-driven loads.
+            // A coarse device flush batch leaves those MMIO reads stale long enough to stall loading.
+            // Keep the default close to instruction cadence until the underlying timing model is improved.
+            const int fallback = 6;
             string? raw = Environment.GetEnvironmentVariable("EUTHERDRIVE_PSX_BUS_TICK_BATCH_CYCLES");
             if (string.IsNullOrWhiteSpace(raw)) {
                 return fallback;
